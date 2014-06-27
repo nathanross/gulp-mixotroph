@@ -3,7 +3,6 @@
 var path = require('path');
 var fs = require('fs');
 var through = require('through2');
-var nodeErr = require('./lib/error.js');
 var baseDir = process.cwd();
 
 module.exports = function(options) {
@@ -17,20 +16,26 @@ module.exports = function(options) {
   }
 
   function mixotroph(srcString, mode, snippetsPath) {
-    srcString = srcString.replace("//=" + mode + "=", "");
-    myRe = new RegExp("//%([a-zA-Z0-9_]+)%","g");
+    console.log("mode == " + mode);
+    var output = srcString;
+    output = output.replace(new RegExp("//=" + mode + "=", "g"),"");
+    var myRe = new RegExp("//%([a-zA-Z0-9_]+)%","g");
     var subs = [];
-    var result = myRe.exec(srcString);
+    var result = myRe.exec(output);
     while (result !== null) {
       setAdd(subs, result[1]);
-      result = myRe.exec(srcString);
+      result = myRe.exec(output);
     }
     var snippet;
     for (var i=0;i<subs.length;i++) {
-      snippet = fs.readFileSync(snippetsPath + '/' + subs[i]);
-      srcString = srcString.replace("//%" + subs[i] + "%");
+      try {
+        snippet = fs.readFileSync(snippetsPath + '/' + subs[i]);
+        output = output.replace("//%" + subs[i] + "%", snippet);
+      } catch(e) {
+        console.log("warrning: could not find requested snippet " + subs[i] + " in snippets Path " + snippetsPath);
+      } 
     }
-    return srcString;
+    return output;
   }
 
   return through.obj(function(file, enc, cb) {
@@ -39,18 +44,19 @@ module.exports = function(options) {
       return cb();
     }
     if (file.isStream()) {
-      return callback(nodeErr('Streaming not supported', {
+      return cb( new Error('Streaming not supported', {
         fileName: file.path,
         showStack: false
       }));
     }
 
     try {
-      file.contents = mixotroph(String(file.contents), 
+      file.contents = new Buffer(mixotroph(String(file.contents), 
                                 (options.mode !== undefined)? options.mode: '',
-                                (options.snippetPath !== undefined)? options.snippetPath : '');
+                                (options.snippetPath !== undefined)? 
+                                           options.snippetPath : 'src/snippets/'));
     } catch (e) {
-      return callback(nodeErr(e.message, {
+      return cb( new Error(e.message, {
         fileName: file.path,
         lineNumber: e.line,
         stack: e.stack,
@@ -60,7 +66,6 @@ module.exports = function(options) {
 
     this.push(file);
 
-    callback();
-
+    cb();
   });
 }
